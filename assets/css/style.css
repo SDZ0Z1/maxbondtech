@@ -284,7 +284,7 @@ textarea {
   position: absolute;
   top: calc(100% + 8px);
   left: 50%;
-  width: 380px;
+  width: 320px;
   padding: 8px;
   background: #fff;
   border: 1px solid var(--line);
@@ -314,11 +314,8 @@ textarea {
 }
 
 .nav-menu a {
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  gap: 12px;
-  align-items: center;
-  padding: 10px;
+  display: block;
+  padding: 11px 14px;
   border-radius: 6px;
   text-decoration: none;
 }
@@ -327,15 +324,23 @@ textarea {
   background: var(--soft);
 }
 
-.nav-menu img {
-  width: 32px;
-  height: 32px;
+.nav-menu a[aria-current="page"] {
+  text-decoration: none;
+  background: var(--soft);
 }
 
 .nav-menu strong {
   display: block;
   font-weight: 500;
   font-size: 15px;
+}
+
+.nav-menu a[aria-current="page"] strong {
+  display: inline-block;
+  background: var(--lime);
+  padding: 0 5px;
+  margin-left: -5px;
+  border-radius: 2px;
 }
 
 .nav-menu span {
@@ -2345,7 +2350,7 @@ fieldset.field {
   height: 64px;
   display: grid;
   place-items: center;
-  background: #fff;
+  background: var(--lime);
   border: 1.5px solid var(--ink);
   border-radius: 16px;
   box-shadow: 0 3px 0 var(--ink), 0 16px 32px -14px rgba(10, 10, 10, 0.35);

@@ -643,5 +643,8 @@ writeFileSync(
 const maxRows = parse(MAX);
 check('max', maxRows, 16, 16);
 writeFileSync(join(IMG, 'max.svg'), svg(16, 16, rectsFor(maxRows), ' role="img" aria-label="Max"'));
+// Line-only version (black outline + eyes) for the lime chat launcher
+const maxLine = maxRows.map((r) => r.replace(/[+wg]/g, '.'));
+writeFileSync(join(IMG, 'max-line.svg'), svg(16, 16, rectsFor(maxLine), ' role="img" aria-label="Max"'));
 
 console.log(`✓ logo, mark, favicon, 404, Max and ${Object.keys(ICON_ART).length} icons written to assets/img`);

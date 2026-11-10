@@ -281,7 +281,7 @@
     '<p class="cb-foot">Scripted demo · no data leaves your browser</p>' +
     '</section>' +
     '<button type="button" class="cb-launcher" aria-controls="cb-panel" aria-expanded="false" aria-label="Chat with Max">' +
-    '<img src="' + botIcon + '" alt="" width="40" height="40"><span class="cb-x" aria-hidden="true">✕</span>' +
+    '<img src="' + ROOT + 'assets/img/max-line.svg" alt="" width="40" height="40"><span class="cb-x" aria-hidden="true">✕</span>' +
     '</button>';
   document.body.appendChild(wrap);
 
