@@ -2,7 +2,7 @@
    Maxbond — ASCII dot-matrix art
    --------------------------------------------------------------------------
    Renders a scene into any <canvas class="ascii" data-ascii="NAME">.
-   Scenes: earth · website · mobile · chatbot · custom
+   Scenes: earth · clouds · waves · moon · mountains
 
    How it works: each scene is drawn in greyscale onto a small offscreen
    canvas (one pixel ≈ one character cell). Darkness becomes character
@@ -45,52 +45,6 @@
     }
     return h >>> 0;
   }
-  // density (0 = empty, 1 = full) → grey colour
-  function g(v) {
-    var c = Math.round(255 * (1 - Math.max(0, Math.min(1, v))));
-    return 'rgb(' + c + ',' + c + ',' + c + ')';
-  }
-  function lin(ctx, x0, y0, x1, y1, v0, v1) {
-    var gr = ctx.createLinearGradient(x0, y0, x1, y1);
-    gr.addColorStop(0, g(v0));
-    gr.addColorStop(1, g(v1));
-    return gr;
-  }
-  function rr(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-  function circle(ctx, x, y, r) {
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-  }
-  function gearPath(ctx, cx, cy, r, teeth, depth) {
-    var step = (Math.PI * 2) / teeth;
-    ctx.beginPath();
-    for (var i = 0; i < teeth; i++) {
-      var a = i * step;
-      var pts = [
-        [a - step * 0.3, r],
-        [a - step * 0.17, r + depth],
-        [a + step * 0.17, r + depth],
-        [a + step * 0.3, r],
-      ];
-      for (var k = 0; k < pts.length; k++) {
-        var px = cx + Math.cos(pts[k][0]) * pts[k][1];
-        var py = cy + Math.sin(pts[k][0]) * pts[k][1];
-        if (i === 0 && k === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.arc(cx, cy, r, a + step * 0.3, a + step * 0.7);
-    }
-    ctx.closePath();
-  }
-
   function unit(x, y, z) {
     var l = Math.sqrt(x * x + y * y + z * z);
     return [x / l, y / l, z / l];
@@ -129,6 +83,99 @@
   }
   function fbm(x, y, z) {
     return vnoise(x, y, z) * 0.55 + vnoise(x * 2.03, y * 2.03, z * 2.03) * 0.3 + vnoise(x * 4.1, y * 4.1, z * 4.1) * 0.15;
+  }
+
+  function sstep(a, b, x) {
+    var t = (x - a) / (b - a);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return t * t * (3 - 2 * t);
+  }
+  // Triangle wave 0..1 (sharp mountain peaks)
+  function tri(u) {
+    u -= Math.floor(u);
+    return 1 - 2 * Math.abs(u - 0.5);
+  }
+  // Position of something drifting sideways that wraps around the visible area.
+  function drift(F, start, speed, t, margin) {
+    var span = F.x1 - F.x0 + margin * 2;
+    var p = (start - F.x0 + margin + t * speed) % span;
+    if (p < 0) p += span;
+    return F.x0 - margin + p;
+  }
+
+  // A procedural scene laid out in a design box [w, h] (scaled to fit,
+  // centred, and free to extend past the box on wide canvases).
+  // sample(x, y, t, out, F) writes out[0] = density 0–1 and out[1] = 1 for
+  // a lime cell.
+  function fieldScene(def) {
+    return {
+      dynamic: true,
+      stars: def.stars,
+      setup: function (a) {
+        var BW = def.box[0];
+        var BH = def.box[1];
+        var fit = def.fit || 0.92;
+        var k = Math.min((a.w * fit) / BW, (a.h * fit) / BH);
+        var ox = (a.w - BW * k) / 2;
+        var oy = (a.h - BH * k) / 2;
+        var n = a.cols * a.rows;
+        var X = new Float32Array(n);
+        var Y = new Float32Array(n);
+        for (var y = 0; y < a.rows; y++) {
+          for (var x = 0; x < a.cols; x++) {
+            var i = y * a.cols + x;
+            X[i] = (a.ox + (x + 0.5) * a.cw - ox) / k;
+            Y[i] = (a.oy + (y + 0.5) * a.ch - oy) / k;
+          }
+        }
+        a.F = { X: X, Y: Y, x0: -ox / k, x1: (a.w - ox) / k, out: [0, 0], data: def.data || null };
+      },
+      update: function (a, t) {
+        var F = a.F;
+        var X = F.X;
+        var Y = F.Y;
+        var d = a.dens;
+        var acc = a.isAcc;
+        var o = F.out;
+        for (var i = 0; i < d.length; i++) {
+          o[0] = 0;
+          o[1] = 0;
+          def.sample(X[i], Y[i], t, o, F);
+          d[i] = o[0] > 1 ? 1 : o[0] < 0 ? 0 : o[0];
+          acc[i] = o[1];
+        }
+      },
+    };
+  }
+
+  // A puffy cloud: writes into o and returns true when (x, y) is inside.
+  var PUFFS = [
+    [-0.95, 0.12, 0.42],
+    [-0.45, -0.18, 0.56],
+    [0.22, -0.32, 0.64],
+    [0.82, 0.02, 0.46],
+    [0.15, 0.16, 0.52],
+  ];
+  function cloud(x, y, cx, cy, s, o) {
+    var best = 1e9;
+    var top = false;
+    for (var p = 0; p < PUFFS.length; p++) {
+      var r = PUFFS[p][2] * s;
+      var dx = x - (cx + PUFFS[p][0] * s);
+      var dy = y - (cy + PUFFS[p][1] * s);
+      var dd = Math.sqrt(dx * dx + dy * dy) - r;
+      if (dd < best) {
+        best = dd;
+        top = dy < -r * 0.3;
+      }
+    }
+    var bottom = cy + 0.34 * s;
+    if (y > bottom && y - bottom > best) best = y - bottom;
+    if (best > 0) return false;
+    var depth = -best / s; // 0 at the edge
+    o[0] = depth < 0.09 ? 0.82 : 0.1 + 0.34 * sstep(cy - 0.5 * s, bottom, y); // outline, darker underside
+    o[1] = top && depth < 0.2 ? 1 : 0; // sunlit tops in lime
+    return true;
   }
 
   /* ---------- scenes ----------
@@ -288,190 +335,153 @@
       },
     },
 
-    // A solid browser window; the UI is cut out as negative space.
-    website: {
-      box: [400, 280],
-      fit: 0.94,
-      halo: 10,
-      main: function (c) {
-        rr(c, 10, 10, 380, 260, 22);
-        c.fillStyle = lin(c, 10, 10, 390, 270, 0.95, 0.45);
-        c.fill();
-        c.fillStyle = g(0);
-        [44, 70, 96].forEach(function (x) {
-          circle(c, x, 36, 8);
-          c.fill();
-        });
-        rr(c, 124, 25, 236, 22, 11);
-        c.fill();
-        rr(c, 36, 74, 328, 104, 12);
-        c.fill();
-        c.fillStyle = g(0.95);
-        c.fillRect(62, 98, 184, 16);
-        c.fillStyle = g(0.7);
-        c.fillRect(62, 126, 126, 10);
-        rr(c, 62, 148, 70, 16, 5);
-        c.fillStyle = g(1);
-        c.fill();
-        [36, 150, 264].forEach(function (x) {
-          rr(c, x, 194, 100, 52, 9);
-          c.fillStyle = g(0);
-          c.fill();
-          c.fillStyle = g(0.75);
-          c.fillRect(x + 14, 210, 56, 7);
-          c.fillRect(x + 14, 225, 36, 7);
-        });
+    // Website Development — clouds drifting in front of the sun.
+    clouds: fieldScene({
+      box: [400, 260],
+      sample: function (x, y, t, o, F) {
+        if (cloud(x, y, drift(F, 70, 0.012, t, 90), 66, 40, o)) return;
+        if (cloud(x, y, 196 + Math.sin(t * 0.0006) * 6, 166, 92, o)) return;
+        if (cloud(x, y, drift(F, 340, -0.008, t, 90), 104, 30, o)) return;
+        var dx = x - 284;
+        var dy = y - 92;
+        var r = Math.sqrt(dx * dx + dy * dy);
+        if (r < 46) {
+          o[0] = 0.95;
+          o[1] = 1;
+        } else if (r > 56 && r < 78 && Math.cos(Math.atan2(dy, dx) * 9 + t * 0.0008) > 0.7) {
+          o[0] = 0.5; // rays
+        }
       },
-      accent: function (c) {
-        c.fillStyle = g(1);
-        c.fillRect(62, 98, 184, 16);
-        rr(c, 62, 148, 70, 16, 5);
-        c.fill();
-      },
-    },
+    }),
 
-    // Two phones: one tilted behind, one solid phone in front.
-    mobile: {
-      box: [320, 300],
-      fit: 0.96,
-      halo: 10,
-      main: function (c) {
-        c.save();
-        c.translate(220, 158);
-        c.rotate(0.22);
-        rr(c, -64, -124, 128, 248, 26);
-        c.fillStyle = lin(c, -64, -124, 64, 124, 0.62, 0.22);
-        c.fill();
-        rr(c, -50, -102, 100, 196, 12);
-        c.fillStyle = g(0.1);
-        c.fill();
-        c.fillStyle = g(0.45);
-        c.fillRect(-36, -86, 72, 30);
-        c.fillRect(-36, -40, 56, 8);
-        c.fillRect(-36, -22, 40, 8);
-        c.restore();
-
-        rr(c, 70, 14, 150, 272, 30);
-        c.fillStyle = lin(c, 70, 14, 220, 286, 0.98, 0.55);
-        c.fill();
-        rr(c, 88, 48, 114, 210, 12);
-        c.fillStyle = g(0);
-        c.fill();
-        rr(c, 124, 26, 42, 10, 5);
-        c.fill();
-        rr(c, 98, 60, 94, 56, 9);
-        c.fillStyle = lin(c, 98, 60, 192, 116, 0.95, 0.6);
-        c.fill();
-        [126, 162, 198].forEach(function (y, i) {
-          circle(c, 110, y + 13, 8);
-          c.fillStyle = g(0.85);
-          c.fill();
-          c.fillStyle = g(0.85);
-          c.fillRect(126, y + 5, 60 - i * 10, 8);
-          c.fillStyle = g(0.55);
-          c.fillRect(126, y + 18, 40, 6);
-        });
-        rr(c, 124, 270, 42, 7, 3.5);
-        c.fillStyle = g(0);
-        c.fill();
+    // Mobile Development — rolling ocean waves under a low sun.
+    waves: fieldScene({
+      box: [400, 260],
+      sample: function (x, y, t, o) {
+        var layer = -1;
+        var surf = 0;
+        for (var j = 0; j < 4; j++) {
+          var A = 9 + j * 6;
+          var f = 0.026 - j * 0.0035;
+          var s = (0.0013 + j * 0.0003) * (j % 2 ? -1 : 1);
+          var h = 100 + j * 40 + A * Math.sin(x * f + t * s + j * 1.7) + A * 0.35 * Math.sin(x * f * 2.3 - t * s * 1.3 + j);
+          if (y >= h) {
+            layer = j;
+            surf = h;
+          }
+        }
+        if (layer < 0) {
+          var dx = x - 112;
+          var dy = y - 66;
+          var r = Math.sqrt(dx * dx + dy * dy);
+          if (r < 30) {
+            o[0] = 0.95;
+            o[1] = 1;
+          } else if (r < 38) o[0] = 0.25;
+          return;
+        }
+        var under = y - surf;
+        var v = 0.05 + layer * 0.06;
+        if (under < 11) {
+          v = 0.72 + layer * 0.05; // crest
+          if (Math.sin(x * 0.06 + t * 0.0018 * (layer + 1) + layer * 2.3) > 0.72) {
+            v = 1; // foam
+            o[1] = 1;
+          }
+        } else if (under < 20) v += 0.16;
+        o[0] = v;
       },
-      accent: function (c) {
-        c.fillStyle = g(1);
-        [126, 162, 198].forEach(function (y) {
-          circle(c, 110, y + 13, 8);
-          c.fill();
-        });
-      },
-    },
+    }),
 
-    // A dense chat bubble with typing dots and a lighter reply.
-    chatbot: {
-      box: [360, 290],
-      fit: 0.96,
-      halo: 10,
-      main: function (c) {
-        rr(c, 18, 24, 250, 152, 44);
-        c.fillStyle = lin(c, 18, 24, 268, 176, 0.95, 0.55);
-        c.fill();
-        c.beginPath();
-        c.moveTo(62, 160);
-        c.lineTo(120, 170);
-        c.lineTo(38, 228);
-        c.closePath();
-        c.fillStyle = g(0.8);
-        c.fill();
-        c.fillStyle = g(0);
-        [92, 143, 194].forEach(function (x) {
-          circle(c, x, 100, 17);
-          c.fill();
-        });
-        rr(c, 186, 168, 156, 84, 30);
-        c.fillStyle = g(0);
-        c.fill();
-        c.lineWidth = 9;
-        c.strokeStyle = g(0.55);
-        c.stroke();
-        c.fillStyle = g(0.9);
-        c.fillRect(214, 194, 96, 9);
-        c.fillRect(214, 216, 62, 9);
+    // AI Chatbot (24/7) — a crescent moon, sparkling stars and a passing cloud.
+    moon: fieldScene({
+      box: [400, 260],
+      stars: true,
+      data: [70, 58, 1.3, 336, 46, 0.9, 356, 176, 1.7, 46, 196, 1.1, 304, 222, 0.7, 104, 128, 1.5],
+      sample: function (x, y, t, o, F) {
+        if (cloud(x, y, drift(F, 60, 0.01, t, 70), 176, 30, o)) return;
+        var dx = x - 200;
+        var dy = y - 128;
+        var r = Math.sqrt(dx * dx + dy * dy);
+        var ex = x - 238;
+        var ey = y - 100;
+        var e = Math.sqrt(ex * ex + ey * ey);
+        if (r < 88 && e > 76) {
+          var edge = Math.min(88 - r, e - 76);
+          if (edge < 4) {
+            o[0] = 0.78; // outline
+          } else if (fbm(x / 24, y / 24, 3.3) > 0.6) {
+            o[0] = 0.6; // craters
+          } else {
+            o[0] = 0.95;
+            o[1] = 1;
+          }
+          return;
+        }
+        if (r < 102 && e > 70) o[0] = 0.05 + 0.15 * (1 - (r - 88) / 14); // glow
+        var sp = F.data;
+        for (var k = 0; k < sp.length; k += 3) {
+          var sx = Math.abs(x - sp[k]);
+          var sy = Math.abs(y - sp[k + 1]);
+          var tw = 0.5 + 0.5 * Math.sin(t * 0.002 * sp[k + 2] + sp[k + 2] * 5);
+          var L = 5 + tw * 8;
+          if ((sx < 4.5 && sy < L) || (sy < 4.5 && sx < L)) {
+            o[0] = 0.55 + tw * 0.45;
+            o[1] = sx < 4.5 && sy < 4.5 ? 1 : 0;
+            return;
+          }
+        }
       },
-      accent: function (c) {
-        c.fillStyle = g(1);
-        c.fillRect(214, 194, 96, 9);
-        c.fillRect(214, 216, 62, 9);
+    }),
+
+    // Customized Solution — mountain ranges, sunlit peaks, drifting mist.
+    mountains: fieldScene({
+      box: [400, 260],
+      sample: function (x, y, t, o) {
+        var layer = -1;
+        var ridge = 0;
+        var hgt = 0;
+        var right = 0;
+        for (var j = 0; j < 3; j++) {
+          var base = 178 + j * 30;
+          var amp = 120 - j * 28;
+          var u = x / (150 - j * 33) + j * 1.7;
+          var hh = 0.62 * tri(u) + 0.28 * tri(u * 2.13 + 0.4) + 0.1 * tri(u * 4.7 + 1.3);
+          var h = base - amp * hh;
+          if (y >= h) {
+            layer = j;
+            ridge = h;
+            hgt = hh;
+            var u2 = u + 3 / (150 - j * 33);
+            right = base - amp * (0.62 * tri(u2) + 0.28 * tri(u2 * 2.13 + 0.4) + 0.1 * tri(u2 * 4.7 + 1.3));
+          }
+        }
+        if (layer < 0) {
+          var dx = x - 292;
+          var dy = y - 62;
+          var r = Math.sqrt(dx * dx + dy * dy);
+          if (r < 30) {
+            o[0] = 0.95;
+            o[1] = 1;
+          } else if (r < 37) o[0] = 0.22;
+          return;
+        }
+        var v = 0.1 + layer * 0.2;
+        v += right < ridge ? -0.06 : 0.12; // light from the left
+        var below = y - ridge;
+        if (below < 6) v = Math.max(v, 0.8); // ridge line
+        if (hgt > 0.72 && below < 14) {
+          v = 0.95; // sunlit peaks
+          o[1] = 1;
+        }
+        var band = y > 184 && y < 214;
+        if (band && Math.sin(x * 0.035 + t * 0.0007) + Math.sin(x * 0.011 - t * 0.0004) > 0.5) {
+          v *= 0.25; // mist
+          o[1] = 0;
+        }
+        o[0] = v;
       },
-    },
-
-    // A big gear, a small gear and integration nodes.
-    custom: {
-      box: [360, 290],
-      fit: 0.96,
-      halo: 10,
-      main: function (c) {
-        c.lineWidth = 7;
-        c.strokeStyle = g(0.6);
-        c.beginPath();
-        c.moveTo(150, 150);
-        c.lineTo(300, 236);
-        c.moveTo(150, 150);
-        c.lineTo(318, 160);
-        c.stroke();
-
-        gearPath(c, 270, 72, 40, 7, 16);
-        c.fillStyle = lin(c, 230, 30, 310, 110, 0.55, 0.3);
-        c.fill();
-        circle(c, 270, 72, 15);
-        c.fillStyle = g(0);
-        c.fill();
-
-        gearPath(c, 140, 150, 92, 9, 24);
-        c.fillStyle = lin(c, 48, 58, 232, 242, 0.98, 0.5);
-        c.fill();
-        circle(c, 140, 150, 40);
-        c.fillStyle = g(0);
-        c.fill();
-        c.lineWidth = 10;
-        c.strokeStyle = g(1);
-        c.stroke();
-
-        [[318, 160], [300, 236]].forEach(function (p) {
-          circle(c, p[0], p[1], 17);
-          c.fillStyle = g(0.95);
-          c.fill();
-        });
-      },
-      accent: function (c) {
-        circle(c, 140, 150, 40);
-        c.lineWidth = 12;
-        c.strokeStyle = g(1);
-        c.stroke();
-        c.fillStyle = g(1);
-        [[318, 160], [300, 236]].forEach(function (p) {
-          circle(c, p[0], p[1], 18);
-          c.fill();
-        });
-      },
-    },
+    }),
   };
 
   /* ---------- renderer ---------- */
@@ -483,7 +493,7 @@
     this.name = canvas.getAttribute('data-ascii');
     this.scene = SCENES[this.name] || SCENES.earth;
     var cell = canvas.getAttribute('data-cell');
-    var c = cell ? cell.split('x').map(Number) : this.scene.cell || [4.8, 6.6];
+    var c = cell ? cell.split('x').map(Number) : this.scene.cell || [4.4, 6];
     this.cw = c[0];
     this.ch = c[1];
     this.font = '700 ' + Math.round(this.ch * 1.02) + 'px "Space Mono", ui-monospace, Menlo, Consolas, monospace';
